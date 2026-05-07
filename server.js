@@ -17,18 +17,18 @@ const TIMEFRAMES_MS = {
 };
 const TIMEFRAMES = Object.keys(TIMEFRAMES_MS);
 
-// Mapping : symbole PocketOption → symbole Binance (pour le ticker)
+// Mapping : symbole PocketOption → symbole Binance
 const ASSET_MAP = {
-    'EURUSD_otc': 'EURUSDT',   // Binance n'a pas EURUSD, on utilise EURUSDT comme proxy
+    'EURUSD_otc': 'EURUSDT',
     'GBPUSD_otc': 'GBPUSDT',
-    'USDJPY_otc': 'USDJPY',    // Binance a USDJPY (peu liquide, mais prix dispo)
+    'USDJPY_otc': 'USDJPY',
     'AUDUSD_otc': 'AUDUSDT',
-    'USDCAD_otc': 'USDCAD',    // Binance a USDCAD
+    'USDCAD_otc': 'USDCAD',
     'BTCUSD_otc': 'BTCUSDT',
     'ETHUSD_otc': 'ETHUSDT',
-    'EURGBP_otc': 'EURGBP',    // Binance a EURGBP
-    'GBPJPY_otc': 'GBPJPY',    // Binance a GBPJPY
-    'EURJPY_otc': 'EURJPY'     // Binance a EURJPY
+    'EURGBP_otc': 'EURGBP',
+    'GBPJPY_otc': 'GBPJPY',
+    'EURJPY_otc': 'EURJPY'
 };
 const ASSETS = Object.keys(ASSET_MAP);
 
@@ -43,7 +43,7 @@ ASSETS.forEach(s => {
     lastPrices[s] = 0;
 });
 
-// Indicateurs (identiques)
+// Indicateurs
 function calculateRSI(prices, period = 14) {
     if (prices.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -81,13 +81,11 @@ function calculateMACD(closes) {
 function getTradeSignal(symbol, timeframe) {
     const closes = candles[symbol][timeframe].map(c => c.close);
     if (closes.length < 50) return { signal: 'NEUTRE', confidence: 0 };
-
     const currentPrice = closes[closes.length - 1];
     const rsi = calculateRSI(closes, 14);
     const ema20 = calculateEMA(closes, 20);
     const ema50 = calculateEMA(closes, 50);
     const { macd, signal: macdSignal, histogram } = calculateMACD(closes);
-
     let buyScore = 0, sellScore = 0;
     if (rsi < 30) buyScore += 25; else if (rsi > 70) sellScore += 25;
     if (currentPrice > ema20 && ema20 > ema50) buyScore += 20;
@@ -98,7 +96,6 @@ function getTradeSignal(symbol, timeframe) {
     const recentHigh = Math.max(...closes.slice(-30));
     if (currentPrice < recentLow * 1.01) buyScore += 15;
     if (currentPrice > recentHigh * 0.99) sellScore += 15;
-
     const totalScore = buyScore + sellScore;
     const confidence = Math.min(100, Math.round(totalScore * 1.1));
     if (buyScore > sellScore && confidence > 40) return { signal: 'BUY', confidence };
@@ -124,25 +121,22 @@ function updateCandlesFromTick(symbol, price, timestamp) {
     });
 }
 
-// Connexion à Binance (fiable, pas d'authentification)
+// Connexion à Binance
 function connectToBinance() {
     const streams = Object.values(ASSET_MAP).map(s => s.toLowerCase() + '@ticker').join('/');
     const wsUrl = 'wss://stream.binance.com:9443/stream?streams=' + streams;
     console.log('[Binance] Connexion à', wsUrl);
     const ws = new WebSocket(wsUrl);
-
     ws.on('open', () => {
         console.log('[Binance] Connecté');
         connected.value = true;
     });
-
     ws.on('message', (data) => {
         try {
             const msg = JSON.parse(data.toString());
             if (msg.data) {
                 const binanceSymbol = msg.data.s;
                 const price = parseFloat(msg.data.c);
-                // Retrouver le symbole PocketOption correspondant
                 const poSymbol = Object.keys(ASSET_MAP).find(k => ASSET_MAP[k] === binanceSymbol);
                 if (poSymbol) {
                     lastPrices[poSymbol] = price;
@@ -151,21 +145,24 @@ function connectToBinance() {
             }
         } catch (e) {}
     });
-
     ws.on('close', () => {
         connected.value = false;
         console.log('[Binance] Déconnecté, reconnexion dans 5s');
         setTimeout(connectToBinance, 5000);
     });
-
     ws.on('error', (err) => console.error('[Binance] Erreur', err.message));
 }
 
-// Serveur Express
+// Démarrage du serveur Express
 const app = express();
-app.use((req, res, next) => { res.header('Access-Control-Allow-Origin', '*'); next(); });
-app.use(express.static(path.join(__dirname, 'public')));
 
+// CORS obligatoire
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    next();
+});
+
+// Route API
 app.get('/api/signals', (req, res) => {
     const tf = req.query.tf || '60s';
     if (!TIMEFRAMES.includes(tf)) return res.status(400).json({ error: 'Timeframe invalide' });
@@ -183,6 +180,7 @@ app.get('/api/signals', (req, res) => {
     res.json(results);
 });
 
+// Lancer la connexion Binance et le serveur
 connectToBinance();
 const server = http.createServer(app);
 server.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
