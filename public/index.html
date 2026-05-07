@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PocketOption Scanner – Signaux Trading</title>
+    <style>
+        :root {
+            --bg: #0b0f15; --card-bg: #161c28; --border: #242d3d;
+            --text: #e8edf5; --muted: #8f99b0; --accent: #4f6cf7;
+            --green: #10b879; --red: #f0475b; --gold: #f0a840;
+            --radius: 12px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .header { background: #111827; border-bottom:1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap; }
+        .logo { font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+        .logo-icon { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #4f6cf7, #6d5df7); display: flex; align-items: center; justify-content: center; font-weight: 800; }
+        .controls { display: flex; gap: 12px; align-items: center; }
+        .tf-selector { background: #1a2032; border: 1px solid var(--border); border-radius: 20px; padding: 4px; display: flex; gap: 2px; }
+        .tf-btn { padding: 6px 14px; border-radius: 18px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-weight: 600; font-size: 13px; transition: 0.2s; }
+        .tf-btn.active { background: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(79,108,247,0.3); }
+        .refresh-btn { background: var(--accent); border: none; border-radius: 20px; padding: 8px 18px; color: #fff; font-weight: 600; cursor: pointer; }
+        .status { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+        .status.online { color: var(--green); }
+        .status.offline { color: var(--red); }
+        .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; }
+        .status.online::before { background: var(--green); box-shadow: 0 0 10px var(--green); }
+        .status.offline::before { background: var(--red); box-shadow: 0 0 10px var(--red); }
+        .table-container { flex:1; overflow-y: auto; padding: 15px 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 12px 15px; background: #111827; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; position: sticky; top: 0; z-index: 2; }
+        td { padding: 14px 15px; border-bottom: 1px solid var(--border); }
+        tr:hover td { background: rgba(255,255,255,0.01); }
+        .symbol-cell { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .pair-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; }
+        .forex { background: #627eea20; color:#627eea; }
+        .crypto { background: #f7931a20; color:#f7931a; }
+        .signal-badge { padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px; display: inline-block; min-width: 80px; text-align: center; }
+        .buy { background: rgba(16,184,121,0.15); color: var(--green); }
+        .sell { background: rgba(240,71,91,0.15); color: var(--red); }
+        .neutral { background: rgba(255,255,255,0.06); color: var(--muted); }
+        .confidence-bar { width: 100%; height: 6px; background: #1e2a3a; border-radius: 10px; overflow: hidden; margin-top: 5px; }
+        .confidence-fill { height: 100%; border-radius: 10px; transition: width 0.5s ease; }
+        .high-conf { background: var(--green); } .med-conf { background: var(--gold); } .low-conf { background: var(--red); }
+        .no-data { text-align: center; padding: 40px; color: var(--muted); font-size: 16px; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="header">
+        <div class="logo"><div class="logo-icon">PO</div>PocketOption Scanner</div>
+        <div class="controls">
+            <div class="tf-selector" id="timeframeSelector">
+                <button class="tf-btn" data-tf="5s">5s</button>
+                <button class="tf-btn" data-tf="10s">10s</button>
+                <button class="tf-btn" data-tf="15s">15s</button>
+                <button class="tf-btn" data-tf="30s">30s</button>
+                <button class="tf-btn active" data-tf="60s">1m</button>
+                <button class="tf-btn" data-tf="120s">2m</button>
+                <button class="tf-btn" data-tf="300s">5m</button>
+            </div>
+            <button class="refresh-btn" id="manualRefresh">↻ Actualiser</button>
+            <span class="status online" id="connectionStatus">Connecté</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Paire</th>
+                    <th>Prix</th>
+                    <th>TF</th>
+                    <th>Signal</th>
+                    <th>Confiance</th>
+                </tr>
+            </thead>
+            <tbody id="signalsBody">
+                <tr><td colspan="5" class="no-data">Chargement des données PocketOption...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // ⚠️ Remplacez cette URL par celle de votre backend Render après le déploiement
+        const API_BASE = 'https://pocketoption-scanner.onrender.com';
+
+        let currentTF = '60s';
+        const body = document.getElementById('signalsBody');
+        const tfBtns = document.querySelectorAll('.tf-btn');
+        const connStatus = document.getElementById('connectionStatus');
+
+        async function fetchSignals() {
+            try {
+                const res = await fetch(`${API_BASE}/api/signals?tf=${currentTF}`);
+                if (!res.ok) throw new Error('Erreur réseau');
+                const data = await res.json();
+                
+                if (data.length > 0 && data[0].connected !== undefined) {
+                    if (data[0].connected) {
+                        connStatus.textContent = 'Connecté';
+                        connStatus.className = 'status online';
+                    } else {
+                        connStatus.textContent = 'En attente...';
+                        connStatus.className = 'status offline';
+                    }
+                }
+
+                renderTable(data);
+            } catch (e) {
+                console.error(e);
+                connStatus.textContent = 'Déconnecté';
+                connStatus.className = 'status offline';
+                body.innerHTML = `<tr><td colspan="5" class="no-data">⚠ Impossible de contacter le serveur (${API_BASE})</td></tr>`;
+            }
+        }
+
+        function renderTable(signals) {
+            if (signals.length === 0) {
+                body.innerHTML = `<tr><td colspan="5" class="no-data">Aucune donnée disponible</td></tr>`;
+                return;
+            }
+
+            body.innerHTML = '';
+            signals.forEach(s => {
+                const signalClass = s.signal.toLowerCase();
+                let confClass = 'low-conf';
+                if (s.confidence >= 70) confClass = 'high-conf';
+                else if (s.confidence >= 40) confClass = 'med-conf';
+
+                const isCrypto = s.symbol.includes('BTC') || s.symbol.includes('ETH');
+                const iconClass = isCrypto ? 'crypto' : 'forex';
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="symbol-cell">
+                        <span class="pair-icon ${iconClass}">${s.symbol.charAt(0)}</span>
+                        ${s.symbol}
+                    </td>
+                    <td style="font-family: 'JetBrains Mono', monospace; font-weight:600;">${s.price.toFixed(5)}</td>
+                    <td style="color: var(--muted); font-weight:500;">${s.timeframe}</td>
+                    <td><span class="signal-badge ${signalClass}">${s.signal}</span></td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-weight:700; min-width:32px;">${s.confidence}%</span>
+                            <div class="confidence-bar" style="flex:1;">
+                                <div class="confidence-fill ${confClass}" style="width:${s.confidence}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                `;
+                body.appendChild(row);
+            });
+        }
+
+        tfBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tfBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTF = btn.dataset.tf;
+                fetchSignals();
+            });
+        });
+
+        document.getElementById('manualRefresh').addEventListener('click', fetchSignals);
+        setInterval(fetchSignals, 3000);
+        fetchSignals();
+    </script>
+</body>
+</html>
